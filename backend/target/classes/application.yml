@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: stock-research-app
+
+  # ---- Database ----
+  # Default: H2 file-based DB (zero setup, data persists between restarts).
+  # To switch to PostgreSQL, set env var DB_MODE=postgres and provide the
+  # POSTGRES_URL / POSTGRES_USER / POSTGRES_PASSWORD env vars.
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./data/stockresearch;AUTO_SERVER=TRUE}
+    driver-class-name: ${DB_DRIVER:org.h2.Driver}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  cache:
+    type: simple
+
+server:
+  port: ${SERVER_PORT:8080}
+
+# ---- CORS (frontend runs on a different port during dev) ----
+app:
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:5173}
+
+  # ---- Scheduler intervals (overridable from Settings page at runtime;
+  #      these are just the defaults used on first boot) ----
+  scheduler:
+    refresh-interval-hours: 6
+    enabled: true
+
+  # ---- Discovery engine defaults (also editable via Settings) ----
+  discovery:
+    market-cap-min-cr: 200
+    market-cap-max-cr: 10000
+    min-promoter-holding-pct: 35
+    max-debt-to-equity: 1.0
+    min-roce-pct: 12
+    top-n-results: 50
+    min-score-threshold: 60
+
+logging:
+  level:
+    com.stockresearch: INFO
