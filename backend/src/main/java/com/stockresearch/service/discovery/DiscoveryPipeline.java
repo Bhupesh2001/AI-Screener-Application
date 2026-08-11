@@ -3,12 +3,14 @@ package com.stockresearch.service.discovery;
 import com.stockresearch.domain.*;
 import com.stockresearch.repository.*;
 import com.stockresearch.service.datasource.AnnouncementSource;
+import com.stockresearch.service.datasource.FundamentalsDataSource;
 import com.stockresearch.service.datasource.NewsSource;
 import com.stockresearch.service.datasource.PriceDataSource;
 import com.stockresearch.service.scoring.ScoringEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -45,6 +47,7 @@ public class DiscoveryPipeline {
     private final NewsRepository newsRepository;
     private final ScoreSnapshotRepository scoreSnapshotRepository;
     private final PriceDataSource priceDataSource;
+    private final FundamentalsDataSource fundamentalsDataSource; // NEW
     private final NewsSource newsSource;
     private final AnnouncementSource announcementSource;
     private final FundamentalScreeningStage screeningStage;
@@ -57,6 +60,7 @@ public class DiscoveryPipeline {
             NewsRepository newsRepository,
             ScoreSnapshotRepository scoreSnapshotRepository,
             PriceDataSource priceDataSource,
+            FundamentalsDataSource fundamentalsDataSource, // NEW
             NewsSource newsSource,
             AnnouncementSource announcementSource,
             FundamentalScreeningStage screeningStage,
@@ -68,6 +72,7 @@ public class DiscoveryPipeline {
         this.newsRepository = newsRepository;
         this.scoreSnapshotRepository = scoreSnapshotRepository;
         this.priceDataSource = priceDataSource;
+        this.fundamentalsDataSource = fundamentalsDataSource;
         this.newsSource = newsSource;
         this.announcementSource = announcementSource;
         this.screeningStage = screeningStage;
@@ -76,6 +81,7 @@ public class DiscoveryPipeline {
     }
 
     /** Runs the full pipeline for every company currently in the universe (Stage 1). */
+    @Transactional
     public List<DiscoveryResult> runForAllCompanies(AppSettings settings) {
         List<Company> universe = companyRepository.findAll();
         return universe.stream().map(c -> runForCompany(c, settings)).toList();
@@ -110,24 +116,31 @@ public class DiscoveryPipeline {
     }
 
     private void refreshFundamentals(Company company) {
+        // Price/technical via Yahoo Finance
         priceDataSource.fetchSnapshot(company.getSymbol()).ifPresent(snap -> {
             company.setCurrentPrice(snap.currentPrice());
             company.setWeek52High(snap.week52High());
             company.setWeek52Low(snap.week52Low());
-            company.setMarketCapCr(snap.marketCapCr());
-            company.setPeRatio(snap.peRatio());
-            company.setRevenueGrowthPct(snap.revenueGrowthPct());
-            company.setProfitGrowthPct(snap.profitGrowthPct());
-            company.setOperatingMarginPct(snap.operatingMarginPct());
-            company.setDebtToEquity(snap.debtToEquity());
-            company.setRoce(snap.roce());
-            company.setRoe(snap.roe());
-            company.setOperatingCashFlowCr(snap.operatingCashFlowCr());
-            company.setPromoterHoldingPct(snap.promoterHoldingPct());
-            company.setInstitutionalHoldingPct(snap.institutionalHoldingPct());
-            company.setLastRefreshedAt(LocalDateTime.now());
-            companyRepository.save(company);
+            if (snap.marketCapCr() != null) company.setMarketCapCr(snap.marketCapCr());
+            if (snap.peRatio() != null) company.setPeRatio(snap.peRatio());
+            // These fields are null from Yahoo, but we don't overwrite with nulls
+            // (we keep existing values if we have them)
         });
+
+        // Fundamentals via Screener.in
+        fundamentalsDataSource.fetchFundamentals(company.getSymbol()).ifPresent(fund -> {
+            company.setRevenueGrowthPct(fund.revenueGrowthPct());
+            company.setProfitGrowthPct(fund.profitGrowthPct());
+            company.setOperatingMarginPct(fund.operatingMarginPct());
+            company.setDebtToEquity(fund.debtToEquity());
+            company.setRoce(fund.roce());
+            company.setRoe(fund.roe());
+            company.setPromoterHoldingPct(fund.promoterHoldingPct());
+            company.setInstitutionalHoldingPct(fund.institutionalHoldingPct());
+        });
+
+        company.setLastRefreshedAt(LocalDateTime.now());
+        companyRepository.save(company);
     }
 
     private List<Event> detectNewEvents(Company company) {
