@@ -6,6 +6,7 @@ import com.stockresearch.repository.*;
 import com.stockresearch.service.scoring.ScoringEngine;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -44,11 +45,13 @@ public class CompanyQueryService {
         this.scoringEngine = scoringEngine;
     }
 
+    @Transactional(readOnly = true)
     public List<CompanySummaryDto> search(String query) {
         List<Company> matches = companyRepository.search(query);
         return matches.stream().map(this::toSummaryDto).toList();
     }
 
+    @Transactional(readOnly = true)
     public List<CompanySummaryDto> filter(CompanyFilterRequest req) {
         List<Company> matches = companyRepository.filter(
                 req.getSector(),
@@ -67,6 +70,7 @@ public class CompanyQueryService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public Optional<CompanyDetailDto> getCompanyDetail(Long companyId) {
         return companyRepository.findById(companyId).map(this::toDetailDto);
     }

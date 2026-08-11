@@ -58,6 +58,9 @@ public class YahooFinancePriceDataSource implements PriceDataSource {
             BigDecimal week52High = getBigDecimal(meta.path("fiftyTwoWeekHigh"));
             BigDecimal week52Low = getBigDecimal(meta.path("fiftyTwoWeekLow"));
 
+            log.info("Yahoo response for {}: {}", yahooSymbol, json);
+            log.info("Parsed: price={}, high={}, low={}", currentPrice, week52High, week52Low);
+
             // Market cap and PE are not available from the chart endpoint.
             // We'll set them to null; they will be filled by the fundamentals source.
             return Optional.of(new PriceSnapshot(
