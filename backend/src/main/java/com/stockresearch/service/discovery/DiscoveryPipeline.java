@@ -123,8 +123,10 @@ public class DiscoveryPipeline {
             company.setWeek52Low(snap.week52Low());
             if (snap.marketCapCr() != null) company.setMarketCapCr(snap.marketCapCr());
             if (snap.peRatio() != null) company.setPeRatio(snap.peRatio());
-            // These fields are null from Yahoo, but we don't overwrite with nulls
-            // (we keep existing values if we have them)
+            // marketCapCr/peRatio come from Yahoo's quoteSummary endpoint, which is
+            // best-effort (see YahooFinancePriceDataSource) - if that call fails for
+            // this cycle, snap's values will be null and we keep whatever was
+            // already stored rather than overwriting good data with nulls.
         });
 
         // Fundamentals via Screener.in

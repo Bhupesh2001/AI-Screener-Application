@@ -19,6 +19,8 @@ public class YahooFinancePriceDataSource implements PriceDataSource {
 
     private static final Logger log = LoggerFactory.getLogger(YahooFinancePriceDataSource.class);
     private static final String CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+    private static final String QUOTE_SUMMARY_URL = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/";
+    private static final String QUOTE_SUMMARY_MODULES = "?modules=price,summaryDetail,defaultKeyStatistics";
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
@@ -58,18 +60,60 @@ public class YahooFinancePriceDataSource implements PriceDataSource {
             BigDecimal week52High = getBigDecimal(meta.path("fiftyTwoWeekHigh"));
             BigDecimal week52Low = getBigDecimal(meta.path("fiftyTwoWeekLow"));
 
-            log.info("Yahoo response for {}: {}", yahooSymbol, json);
-            log.info("Parsed: price={}, high={}, low={}", currentPrice, week52High, week52Low);
+            log.debug("Yahoo chart response for {}: {}", yahooSymbol, json);
 
-            // Market cap and PE are not available from the chart endpoint.
-            // We'll set them to null; they will be filled by the fundamentals source.
+            // Market cap and trailing PE come from a separate endpoint (quoteSummary),
+            // since the chart endpoint above only carries price/OHLC data. This call
+            // is best-effort: if Yahoo blocks or reshapes it, we still return the
+            // price/52-week data fetched above rather than failing the whole snapshot.
+            BigDecimal marketCapCr = null;
+            BigDecimal peRatio = null;
+            try {
+                String summaryJson = webClient.get()
+                        .uri(QUOTE_SUMMARY_URL + yahooSymbol + QUOTE_SUMMARY_MODULES)
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .block();
+
+                if (summaryJson != null) {
+                    log.debug("Yahoo quoteSummary response for {}: {}", yahooSymbol, summaryJson);
+                    JsonNode summaryRoot = objectMapper.readTree(summaryJson);
+                    JsonNode summaryResult = summaryRoot.path("quoteSummary").path("result").get(0);
+
+                    if (summaryResult != null && !summaryResult.isMissingNode()) {
+                        // marketCap comes back in raw INR (Yahoo doesn't know about
+                        // "crores" - that's an Indian convention). 1 crore = 10,000,000.
+                        BigDecimal marketCapRaw = getBigDecimal(
+                                summaryResult.path("price").path("marketCap").path("raw"));
+                        if (marketCapRaw != null) {
+                            marketCapCr = marketCapRaw.divide(BigDecimal.valueOf(10_000_000), 2, java.math.RoundingMode.HALF_UP);
+                        }
+
+                        peRatio = getBigDecimal(
+                                summaryResult.path("summaryDetail").path("trailingPE").path("raw"));
+                        if (peRatio == null) {
+                            // defaultKeyStatistics sometimes has trailingPE when
+                            // summaryDetail doesn't (varies by ticker).
+                            peRatio = getBigDecimal(
+                                    summaryResult.path("defaultKeyStatistics").path("trailingPE").path("raw"));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch Yahoo quoteSummary (market cap/PE) for {}: {}", yahooSymbol, e.getMessage());
+                // fall through - marketCapCr/peRatio stay null, rest of the snapshot is still useful
+            }
+
+            log.info("Parsed {}: price={}, high={}, low={}, marketCapCr={}, pe={}",
+                    yahooSymbol, currentPrice, week52High, week52Low, marketCapCr, peRatio);
+
             return Optional.of(new PriceSnapshot(
                     symbol,
                     currentPrice,
                     week52High,
                     week52Low,
-                    null, // marketCapCr
-                    null, // peRatio
+                    marketCapCr,
+                    peRatio,
                     null, // revenueGrowthPct
                     null, // profitGrowthPct
                     null, // operatingMarginPct

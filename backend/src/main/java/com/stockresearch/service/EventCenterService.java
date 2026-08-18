@@ -5,6 +5,7 @@ import com.stockresearch.dto.EventDto;
 import com.stockresearch.repository.EventRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -18,12 +19,14 @@ public class EventCenterService {
         this.eventRepository = eventRepository;
     }
 
+    @Transactional(readOnly = true)
     public List<EventDto> getRecentEvents(int limit) {
         return eventRepository.findAllByOrderByEventDateDesc(PageRequest.of(0, limit)).stream()
                 .map(this::toDto)
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<EventDto> getEventsByType(String type, int limit) {
         Event.EventType eventType = Event.EventType.valueOf(type.toUpperCase());
         return eventRepository.findByTypeOrderByEventDateDesc(eventType, PageRequest.of(0, limit)).stream()
@@ -31,6 +34,7 @@ public class EventCenterService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<EventDto> getEventsForCompany(Long companyId) {
         return eventRepository.findByCompanyIdOrderByEventDateDesc(companyId).stream()
                 .map(this::toDto)
