@@ -46,7 +46,7 @@ app:
   # ---- Discovery engine defaults (also editable via Settings) ----
   discovery:
     market-cap-min-cr: 200
-    market-cap-max-cr: 10000
+    market-cap-max-cr: 5000000000
     min-promoter-holding-pct: 35
     max-debt-to-equity: 1.0
     min-roce-pct: 12

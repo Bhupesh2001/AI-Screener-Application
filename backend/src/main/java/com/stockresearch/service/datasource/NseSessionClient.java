@@ -62,6 +62,7 @@ public class NseSessionClient {
                 .defaultHeader("User-Agent", USER_AGENT)
                 .defaultHeader("Accept", "*/*")
                 .defaultHeader("Accept-Language", "en-US,en;q=0.9")
+                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(1024 * 1024))
                 .build();
     }
 

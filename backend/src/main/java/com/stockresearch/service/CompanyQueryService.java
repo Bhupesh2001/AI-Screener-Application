@@ -79,6 +79,7 @@ public class CompanyQueryService {
         return companyRepository.findBySymbolIgnoreCase(symbol).map(this::toDetailDto);
     }
 
+    @Transactional(readOnly = true)
     public Optional<ScoreChangeDto> getScoreChange(Long companyId) {
         List<ScoreSnapshot> history = scoreSnapshotRepository.findByCompanyIdOrderByComputedAtDesc(companyId, PageRequest.of(0, 2));
         if (history.isEmpty()) return Optional.empty();
@@ -94,6 +95,7 @@ public class CompanyQueryService {
                 .build());
     }
 
+    @Transactional(readOnly = true)
     public Optional<WhyInterestingDto> getWhyInteresting(Long companyId) {
         Optional<ScoreSnapshot> latest = scoreSnapshotRepository.findMostRecent(companyId);
         if (latest.isEmpty()) return Optional.empty();
