@@ -67,7 +67,7 @@ public class AppSettings {
     private Double minPromoterHoldingPct = 35.0;
 
     @Builder.Default
-    private Double maxDebtToEquity = 1.0;
+    private Double maxDebtToEquity = 999.9;
 
     @Builder.Default
     private Double minRocePct = 12.0;

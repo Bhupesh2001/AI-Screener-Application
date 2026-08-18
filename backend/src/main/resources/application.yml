@@ -48,7 +48,7 @@ app:
     market-cap-min-cr: 200
     market-cap-max-cr: 5000000000
     min-promoter-holding-pct: 35
-    max-debt-to-equity: 1.0
+    max-debt-to-equity: 10
     min-roce-pct: 12
     top-n-results: 50
     min-score-threshold: 60

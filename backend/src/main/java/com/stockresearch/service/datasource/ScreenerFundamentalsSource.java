@@ -18,7 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Optional;
 
-@Primary
+//@Primary
 @Component
 class ScreenerFundamentalsSource implements FundamentalsDataSource {
 
