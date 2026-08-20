@@ -2,6 +2,7 @@ package com.stockresearch.service.datasource;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -14,31 +15,42 @@ public class IndianApiClient {
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
+    private final String apiKey; // Store it
 
     public IndianApiClient(ObjectMapper objectMapper,
                            @Value("${indianapi.api-key}") String apiKey,
                            @Value("${indianapi.base-url:https://stock.indianapi.in}") String baseUrl) {
         this.objectMapper = objectMapper;
+        this.apiKey = apiKey;
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .defaultHeader("x-api-key", apiKey)
-                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(5 * 1024 * 1024)) // 5 MB
+                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(5 * 1024 * 1024))
                 .build();
-        log.info("IndianApiClient bean initialized.");
+        log.info("IndianApiClient bean initialized with baseUrl: {}, apiKey present: {}", baseUrl, apiKey != null);
     }
 
+    @PostConstruct
+    public void init() {
+        log.info("IndianApiClient bean is alive! API key present: {}", apiKey != null);
+    }
+
+
     public JsonNode getStockData(String symbol) {
-        String response = webClient.get()
-                .uri(uriBuilder -> uriBuilder.path("/stock")
-                        .queryParam("name", symbol)
-                        .build())
-                .retrieve()
-                .bodyToMono(String.class)
-                .block();
+        log.info("Calling IndianAPI for symbol: {}", symbol);
         try {
+            String response = webClient.get()
+                    .uri(uriBuilder -> uriBuilder.path("/stock")
+                            .queryParam("name", symbol)
+                            .build())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            log.info("Received response for {} (length: {})", symbol, response != null ? response.length() : 0);
             return objectMapper.readTree(response);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to parse IndianAPI response", e);
+            log.error("IndianAPI call failed for {}: {}", symbol, e.getMessage(), e);
+            throw new RuntimeException("IndianAPI request failed", e); // rethrow so caller knows
         }
     }
 

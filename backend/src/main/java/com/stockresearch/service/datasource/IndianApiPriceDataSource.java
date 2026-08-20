@@ -24,12 +24,14 @@ public class IndianApiPriceDataSource implements PriceDataSource {
     @Override
     @Cacheable(value = "price", key = "#symbol", unless = "#result == null")
     public Optional<PriceSnapshot> fetchSnapshot(String symbol) {
+        log.info("Fetching price for symbol: {}", symbol);
         try {
             JsonNode root = apiClient.getStockData(symbol);
             BigDecimal currentPrice = getBigDecimal(root.path("current_price"));
             BigDecimal week52High = getBigDecimal(root.path("high_52_week"));
             BigDecimal week52Low = getBigDecimal(root.path("low_52_week"));
 
+            log.info("Successfully fetched price for {}", symbol);
             // The rest of the fields (marketCap, PE, etc.) will come from fundamentals.
             return Optional.of(new PriceSnapshot(
                     symbol,
@@ -39,6 +41,7 @@ public class IndianApiPriceDataSource implements PriceDataSource {
                     null, null, null, null, null, null, null, null, null, null, null
             ));
         } catch (Exception e) {
+            log.error("Failed to fetch price for {}: {}", symbol, e.getMessage(), e);
             return Optional.empty();
         }
     }
