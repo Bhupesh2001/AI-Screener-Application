@@ -56,3 +56,7 @@ app:
 logging:
   level:
     com.stockresearch: INFO
+
+indianapi:
+  api-key: ${INDIANAPI_API_KEY:sk-live-8fUsbTXzLR0WlOYTbJA5bgWnsXnNVQfPU6RLB3ne}
+  base-url: https://stock.indianapi.in

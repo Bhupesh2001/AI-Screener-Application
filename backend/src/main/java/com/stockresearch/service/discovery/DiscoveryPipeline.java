@@ -19,7 +19,6 @@ import java.util.Optional;
 
 /**
  * Orchestrates the full discovery pipeline described in the spec:
- *
  *   Stage 1 (Initial Universe)     -> CompanyRepository (companies already seeded/stored)
  *   Stage 2 (Fundamental Screening) -> FundamentalScreeningStage
  *   Stage 3 (Growth Detection)      -> captured inside ScoringEngine's growth-related rules
@@ -33,7 +32,6 @@ import java.util.Optional;
  *                                      company on every refresh)
  *   Stage 9 (Final Ranking)         -> ScoreSnapshot persisted, sorted by totalScore
  *   Stage 10 (Reasoning)            -> ScoreReason entities attached to every snapshot
- *
  * This class is what the scheduled background job (see scheduler package)
  * calls periodically, and what a manual "Refresh Now" button would call too.
  */
@@ -116,20 +114,14 @@ public class DiscoveryPipeline {
     }
 
     private void refreshFundamentals(Company company) {
-        // Price/technical via Yahoo Finance
+        // Price (from IndianApiPriceDataSource)
         priceDataSource.fetchSnapshot(company.getSymbol()).ifPresent(snap -> {
             company.setCurrentPrice(snap.currentPrice());
             company.setWeek52High(snap.week52High());
             company.setWeek52Low(snap.week52Low());
-            if (snap.marketCapCr() != null) company.setMarketCapCr(snap.marketCapCr());
-            if (snap.peRatio() != null) company.setPeRatio(snap.peRatio());
-            // marketCapCr/peRatio come from Yahoo's quoteSummary endpoint, which is
-            // best-effort (see YahooFinancePriceDataSource) - if that call fails for
-            // this cycle, snap's values will be null and we keep whatever was
-            // already stored rather than overwriting good data with nulls.
         });
 
-        // Fundamentals via Screener.in
+        // Fundamentals (from IndianApiFundamentalsSource)
         fundamentalsDataSource.fetchFundamentals(company.getSymbol()).ifPresent(fund -> {
             company.setRevenueGrowthPct(fund.revenueGrowthPct());
             company.setProfitGrowthPct(fund.profitGrowthPct());
@@ -139,6 +131,8 @@ public class DiscoveryPipeline {
             company.setRoe(fund.roe());
             company.setPromoterHoldingPct(fund.promoterHoldingPct());
             company.setInstitutionalHoldingPct(fund.institutionalHoldingPct());
+            company.setMarketCapCr(fund.marketCapCr());   // NEW
+            company.setPeRatio(fund.peRatio());           // NEW
         });
 
         company.setLastRefreshedAt(LocalDateTime.now());

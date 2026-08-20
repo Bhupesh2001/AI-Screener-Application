@@ -18,7 +18,7 @@ public class FundamentalScreeningStage {
             BigDecimal cap = company.getMarketCapCr();
             if (cap.compareTo(BigDecimal.valueOf(settings.getMarketCapMinCr())) < 0) {
                 String reason = "Market cap below minimum threshold (₹" + cap + " Cr < ₹" + settings.getMarketCapMinCr() + " Cr)";
-                log.info("Excluding {}: {}", company.getSymbol(), reason);
+                log.info("Excluding 2{}: {}", company.getSymbol(), reason);
                 return Optional.of(reason);
             }
             if (cap.compareTo(BigDecimal.valueOf(settings.getMarketCapMaxCr())) > 0) {
