@@ -1,28 +1,28 @@
 package com.stockresearch.service.scoring.rules;
 
+import com.stockresearch.domain.Company;
+import com.stockresearch.repository.CompanyRepository;
 import com.stockresearch.service.scoring.ScoreRule;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.Set;
 
 /**
- * Rewards companies in sectors widely regarded as structurally strong right
- * now (Stage 6: Sector Strength). This is a simple static tiering for the
- * demo; a fuller implementation would compute this dynamically by averaging
- * revenue/profit growth across all companies in each sector (the repository
- * layer already supports this via ScoreSnapshotRepository.findLatestForSectorOrderByScoreDesc).
+ * Scores companies based on sector‑level momentum.
+ * With NSE sector indices removed, this now uses the average revenue growth
+ * of all tracked companies in the same sector (the sibling‑company fallback).
+ * With a large universe (Nifty 500), this average is a reliable proxy for
+ * sector strength.
  */
 @Component
 public class SectorTailwindScoreRule implements ScoreRule {
 
-    private static final Set<String> HIGH_MOMENTUM_SECTORS = Set.of(
-            "railway", "defense", "defence", "power", "ems", "electronics manufacturing services"
-    );
+    private final CompanyRepository companyRepository;
 
-    private static final Set<String> MODERATE_MOMENTUM_SECTORS = Set.of(
-            "chemicals", "infrastructure", "telecom", "ev", "renewable"
-    );
+    public SectorTailwindScoreRule(CompanyRepository companyRepository) {
+        this.companyRepository = companyRepository;
+    }
 
     @Override
     public String category() {
@@ -36,17 +36,47 @@ public class SectorTailwindScoreRule implements ScoreRule {
 
     @Override
     public RuleResult evaluate(RuleInput input) {
-        String sector = input.company().getSector() == null ? "" : input.company().getSector().toLowerCase();
+        Company self = input.company();
+        String sector = self.getSector();
+        if (sector == null || sector.isBlank()) {
+            return new RuleResult(45, List.of(
+                    new ScoreReasonItem("Sector not assigned for this company", ReasonSentiment.NEUTRAL)));
+        }
 
-        if (HIGH_MOMENTUM_SECTORS.contains(sector)) {
-            return new RuleResult(85, List.of(
-                    new ScoreReasonItem("Operating in a high-momentum sector (" + input.company().getSector() + ")", ReasonSentiment.POSITIVE)));
+        // Fetch all companies in the same sector
+        List<Company> siblings = companyRepository.findBySectorIgnoreCase(sector);
+
+        // Exclude the company itself (or include it – both are fine)
+        // We'll include it to keep the average stable, but we could exclude.
+        List<BigDecimal> revenueGrowths = siblings.stream()
+                .map(Company::getRevenueGrowthPct)
+                .filter(v -> v != null)
+                .toList();
+
+        if (revenueGrowths.isEmpty()) {
+            return new RuleResult(45, List.of(
+                    new ScoreReasonItem("No revenue growth data for companies in this sector", ReasonSentiment.NEUTRAL)));
         }
-        if (MODERATE_MOMENTUM_SECTORS.contains(sector)) {
-            return new RuleResult(60, List.of(
-                    new ScoreReasonItem("Operating in a moderately strong sector (" + input.company().getSector() + ")", ReasonSentiment.NEUTRAL)));
+
+        // Calculate average revenue growth
+        BigDecimal sum = revenueGrowths.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        double avgGrowth = sum.doubleValue() / revenueGrowths.size();
+
+        int score;
+        ReasonSentiment sentiment;
+        if (avgGrowth >= 20) {
+            score = 80; sentiment = ReasonSentiment.POSITIVE;
+        } else if (avgGrowth >= 10) {
+            score = 65; sentiment = ReasonSentiment.POSITIVE;
+        } else if (avgGrowth >= 0) {
+            score = 50; sentiment = ReasonSentiment.NEUTRAL;
+        } else {
+            score = 30; sentiment = ReasonSentiment.NEGATIVE;
         }
-        return new RuleResult(45, List.of(
-                new ScoreReasonItem("Sector momentum unclear or average (" + input.company().getSector() + ")", ReasonSentiment.NEUTRAL)));
+
+        String text = String.format(
+                "Sector average revenue growth (based on %d tracked compan%s) is %+.1f%%",
+                siblings.size(), siblings.size() == 1 ? "y" : "ies", avgGrowth);
+        return new RuleResult(score, List.of(new ScoreReasonItem(text, sentiment)));
     }
 }

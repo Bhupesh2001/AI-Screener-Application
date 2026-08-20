@@ -15,6 +15,15 @@ import org.springframework.stereotype.Component;
  * reserved for Stage 8 (on-demand "Generate AI Research"). If keyword
  * matching proves too coarse later, this is the single place to swap in
  * an AI-based classifier without touching the rest of the pipeline.
+ *
+ * NOTE on NSE coverage: NSE's corporate-announcements feed (see
+ * NseAnnouncementSource) often tags rows with short controlled-vocabulary
+ * category labels (e.g. "Award of Order / Receipt of Order") rather than
+ * natural-language headlines. Only "award of order"/"receipt of order" has
+ * been added here as a verified-against-a-live-sample phrase; NSE's full
+ * official subject taxonomy is longer than what's covered below. If real
+ * announcements are consistently landing in OTHER (check Event Center),
+ * that's the signal to add more of NSE's own category phrases here.
  */
 @Component
 public class EventClassifier {
@@ -37,7 +46,8 @@ public class EventClassifier {
     }
 
     private Event.EventType determineType(String haystack) {
-        if (containsAny(haystack, "loa", "letter of acceptance", "order win", "order worth", "secured order", "bags order")) {
+        if (containsAny(haystack, "loa", "letter of acceptance", "order win", "order worth", "secured order",
+                "bags order", "award of order", "receipt of order")) {
             if (containsAny(haystack, "government", "ministry", "railway", "defence", "defense")) {
                 return Event.EventType.GOVERNMENT_CONTRACT;
             }

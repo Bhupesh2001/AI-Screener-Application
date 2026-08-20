@@ -61,13 +61,13 @@ public class AppSettings {
     private Integer marketCapMinCr = 200;
 
     @Builder.Default
-    private Integer marketCapMaxCr = 10000;
+    private Integer marketCapMaxCr = 100009999;
 
     @Builder.Default
     private Double minPromoterHoldingPct = 35.0;
 
     @Builder.Default
-    private Double maxDebtToEquity = 1.0;
+    private Double maxDebtToEquity = 999.9;
 
     @Builder.Default
     private Double minRocePct = 12.0;

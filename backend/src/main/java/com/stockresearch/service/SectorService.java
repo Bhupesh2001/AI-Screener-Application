@@ -9,6 +9,7 @@ import com.stockresearch.repository.NewsRepository;
 import com.stockresearch.repository.ScoreSnapshotRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -38,12 +39,14 @@ public class SectorService {
         this.newsRepository = newsRepository;
     }
 
+    @Transactional(readOnly = true)
     public List<SectorSummaryDto> getAllSectorSummaries() {
         return TRACKED_SECTORS.stream()
                 .map(this::getSectorSummary)
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public SectorSummaryDto getSectorSummary(String sector) {
         List<Company> companies = companyRepository.findBySectorIgnoreCase(sector);
         List<ScoreSnapshot> latestSnapshots = scoreSnapshotRepository.findLatestForSectorOrderByScoreDesc(sector);

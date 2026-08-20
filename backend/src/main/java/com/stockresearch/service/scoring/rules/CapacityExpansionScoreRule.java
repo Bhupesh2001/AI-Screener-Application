@@ -35,7 +35,7 @@ public class CapacityExpansionScoreRule implements ScoreRule {
 
         List<ScoreReasonItem> reasons = new ArrayList<>();
         for (Event e : expansionEvents) {
-            reasons.add(new ScoreReasonItem(e.getTitle(), ScoreRule.ReasonSentiment.POSITIVE));
+            reasons.add(new ScoreReasonItem(e.getTitle(), ReasonSentiment.POSITIVE));
         }
 
         int score = Math.min(95, 60 + expansionEvents.size() * 15);
