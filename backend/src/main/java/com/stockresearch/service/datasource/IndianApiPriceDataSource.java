@@ -27,12 +27,40 @@ public class IndianApiPriceDataSource implements PriceDataSource {
         log.info("Fetching price for symbol: {}", symbol);
         try {
             JsonNode root = apiClient.getStockData(symbol);
-            BigDecimal currentPrice = getBigDecimal(root.path("current_price"));
-            BigDecimal week52High = getBigDecimal(root.path("high_52_week"));
-            BigDecimal week52Low = getBigDecimal(root.path("low_52_week"));
+            return parsePriceSnapshot(symbol, root);
+        } catch (Exception e) {
+            log.error("Failed to fetch price for {}: {}", symbol, e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Parse price data from an already-fetched JsonNode.
+     * This method is called by DiscoveryPipeline to avoid redundant API calls.
+     */
+    public Optional<PriceSnapshot> parseFromNode(String symbol, JsonNode root) {
+        log.debug("Parsing price from cached node for: {}", symbol);
+        return parsePriceSnapshot(symbol, root);
+    }
+
+    private Optional<PriceSnapshot> parsePriceSnapshot(String symbol, JsonNode root) {
+        try {
+            // Correct field name: "currentPrice" (capital P)
+            JsonNode currentPriceNode = root.path("currentPrice");
+            BigDecimal currentPrice = getBigDecimal(currentPriceNode.path("NSE"));
+            if (currentPrice == null) {
+                currentPrice = getBigDecimal(currentPriceNode.path("BSE"));
+            }
+
+            BigDecimal week52High = getBigDecimal(root.path("yearHigh"));
+            BigDecimal week52Low = getBigDecimal(root.path("yearLow"));
+
+            if (currentPrice == null) {
+                log.warn("No current price found for {}", symbol);
+                return Optional.empty();
+            }
 
             log.info("Successfully fetched price for {}", symbol);
-            // The rest of the fields (marketCap, PE, etc.) will come from fundamentals.
             return Optional.of(new PriceSnapshot(
                     symbol,
                     currentPrice,
@@ -41,7 +69,7 @@ public class IndianApiPriceDataSource implements PriceDataSource {
                     null, null, null, null, null, null, null, null, null, null, null
             ));
         } catch (Exception e) {
-            log.error("Failed to fetch price for {}: {}", symbol, e.getMessage(), e);
+            log.error("Error parsing price for {}: {}", symbol, e.getMessage(), e);
             return Optional.empty();
         }
     }
@@ -49,7 +77,9 @@ public class IndianApiPriceDataSource implements PriceDataSource {
     private BigDecimal getBigDecimal(JsonNode node) {
         if (node.isMissingNode() || node.isNull()) return null;
         try {
-            return new BigDecimal(node.asText().replace(",", ""));
+            String text = node.asText().trim();
+            if (text.isEmpty()) return null;
+            return new BigDecimal(text.replace(",", ""));
         } catch (NumberFormatException e) {
             return null;
         }

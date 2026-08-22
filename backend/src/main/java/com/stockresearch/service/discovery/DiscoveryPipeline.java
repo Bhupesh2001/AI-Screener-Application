@@ -1,11 +1,10 @@
 package com.stockresearch.service.discovery;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.stockresearch.domain.*;
+import com.stockresearch.exceptions.RateLimitExceededException;
 import com.stockresearch.repository.*;
-import com.stockresearch.service.datasource.AnnouncementSource;
-import com.stockresearch.service.datasource.FundamentalsDataSource;
-import com.stockresearch.service.datasource.NewsSource;
-import com.stockresearch.service.datasource.PriceDataSource;
+import com.stockresearch.service.datasource.*;
 import com.stockresearch.service.scoring.ScoringEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,28 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * Orchestrates the full discovery pipeline described in the spec:
- *   Stage 1 (Initial Universe)     -> CompanyRepository (companies already seeded/stored)
- *   Stage 2 (Fundamental Screening) -> FundamentalScreeningStage
- *   Stage 3 (Growth Detection)      -> captured inside ScoringEngine's growth-related rules
- *   Stage 4 (Event Detection)       -> AnnouncementSource -> Event entities
- *   Stage 5 (Govt Tailwind)         -> GovernmentTailwindScoreRule (within ScoringEngine)
- *   Stage 6 (Sector Strength)       -> SectorTailwindScoreRule (within ScoringEngine)
- *   Stage 7 (Technical Confirmation)-> TechnicalBreakoutScoreRule (within ScoringEngine)
- *   Stage 8 (AI Validation)         -> handled on-demand via ResearchService, not in this
- *                                      automatic pipeline (AI calls cost money/time, so
- *                                      they're user-triggered rather than run for every
- *                                      company on every refresh)
- *   Stage 9 (Final Ranking)         -> ScoreSnapshot persisted, sorted by totalScore
- *   Stage 10 (Reasoning)            -> ScoreReason entities attached to every snapshot
- * This class is what the scheduled background job (see scheduler package)
- * calls periodically, and what a manual "Refresh Now" button would call too.
- */
 @Service
 public class DiscoveryPipeline {
 
@@ -45,12 +27,18 @@ public class DiscoveryPipeline {
     private final NewsRepository newsRepository;
     private final ScoreSnapshotRepository scoreSnapshotRepository;
     private final PriceDataSource priceDataSource;
-    private final FundamentalsDataSource fundamentalsDataSource; // NEW
+    private final FundamentalsDataSource fundamentalsDataSource;
     private final NewsSource newsSource;
     private final AnnouncementSource announcementSource;
     private final FundamentalScreeningStage screeningStage;
     private final ScoringEngine scoringEngine;
     private final EventClassifier eventClassifier;
+
+    // Cast to our specific implementations for the parseFromNode methods
+    private final IndianApiPriceDataSource indianApiPriceDataSource;
+    private final IndianApiFundamentalsSource indianApiFundamentalsSource;
+    private final IndianApiAnnouncementSource indianApiAnnouncementSource;
+    private final IndianApiClient indianApiClient;
 
     public DiscoveryPipeline(
             CompanyRepository companyRepository,
@@ -58,12 +46,16 @@ public class DiscoveryPipeline {
             NewsRepository newsRepository,
             ScoreSnapshotRepository scoreSnapshotRepository,
             PriceDataSource priceDataSource,
-            FundamentalsDataSource fundamentalsDataSource, // NEW
+            FundamentalsDataSource fundamentalsDataSource,
             NewsSource newsSource,
             AnnouncementSource announcementSource,
             FundamentalScreeningStage screeningStage,
             ScoringEngine scoringEngine,
-            EventClassifier eventClassifier
+            EventClassifier eventClassifier,
+            IndianApiPriceDataSource indianApiPriceDataSource,
+            IndianApiFundamentalsSource indianApiFundamentalsSource,
+            IndianApiAnnouncementSource indianApiAnnouncementSource,
+            IndianApiClient indianApiClient
     ) {
         this.companyRepository = companyRepository;
         this.eventRepository = eventRepository;
@@ -76,23 +68,61 @@ public class DiscoveryPipeline {
         this.screeningStage = screeningStage;
         this.scoringEngine = scoringEngine;
         this.eventClassifier = eventClassifier;
+        this.indianApiPriceDataSource = indianApiPriceDataSource;
+        this.indianApiFundamentalsSource = indianApiFundamentalsSource;
+        this.indianApiAnnouncementSource = indianApiAnnouncementSource;
+        this.indianApiClient = indianApiClient;
     }
 
-    /** Runs the full pipeline for every company currently in the universe (Stage 1). */
     @Transactional
     public List<DiscoveryResult> runForAllCompanies(AppSettings settings) {
-        List<Company> universe = companyRepository.findAll();
-        return universe.stream().map(c -> runForCompany(c, settings)).toList();
+        // Get companies ordered by last update (oldest first)
+        List<Company> orderedUniverse = companyRepository.findAllOrderByLastScoreAsc();
+        List<DiscoveryResult> results = new ArrayList<>();
+        int processed = 0;
+        int total = orderedUniverse.size();
+
+        for (Company c : orderedUniverse) {
+            try {
+                DiscoveryResult result = runForCompany(c, settings);
+                results.add(result);
+                processed++;
+            } catch (RateLimitExceededException e) {
+                // We hit the rate limit – stop processing
+                log.warn("Rate limit hit after processing {} companies. Remaining: {}", processed, total - processed);
+                break;
+            } catch (Exception e) {
+                log.error("Error processing {}: {}", c.getSymbol(), e.getMessage());
+                results.add(DiscoveryResult.excluded(c, "Error: " + e.getMessage()));
+            }
+            if (processed % 50 == 0) {
+                log.info("Processed {} / {} companies", processed, total);
+            }
+        }
+        log.info("Refresh complete :: {} = processed, {} = remaining (rate limited or errors)", processed, total - processed);
+        return results;
     }
 
     public DiscoveryResult runForCompany(Company company, AppSettings settings) {
-        // --- Refresh fundamentals/price from data source ---
-        refreshFundamentals(company);
+        // --- OPTIMIZATION: Fetch JSON once and reuse ---
+        JsonNode root = null;
+        try {
+            root = indianApiClient.getStockData(company.getSymbol());
+        } catch (RateLimitExceededException e) {
+            // Propagate to stop the whole batch
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to fetch stock data for {}: {}", company.getSymbol(), e.getMessage());
+            return runForCompanyWithSeparateFetches(company, settings);
+        }
 
-        // --- Stage 4: Event Detection - pull fresh announcements, classify, persist ---
-        List<Event> newEvents = detectNewEvents(company);
+        // --- Refresh fundamentals/price from the cached JSON ---
+        refreshFundamentalsFromNode(company, root);
 
-        // --- Fetch/refresh news (also feeds Stage 5 Government Tailwind detection) ---
+        // --- Stage 4: Event Detection - parse from cached JSON ---
+        List<Event> newEvents = detectNewEventsFromNode(company, root);
+
+        // --- Fetch/refresh news (still separate, as it's a different source) ---
         List<News> newNews = detectNews(company);
 
         // --- Stage 2: Fundamental Screening ---
@@ -102,26 +132,93 @@ public class DiscoveryPipeline {
             return DiscoveryResult.excluded(company, exclusionReason.get());
         }
 
-        // --- Stages 3, 5, 6, 7 all happen inside the scoring engine's rules ---
+        // --- Stages 3, 5, 6, 7: Scoring ---
         List<Event> recentEvents = eventRepository.findByCompanyIdOrderByEventDateDesc(company.getId());
         List<News> recentNews = newsRepository.findByCompanyIdOrderByPublishedAtDesc(company.getId());
         ScoringEngine.ComputedScore score = scoringEngine.compute(company, recentEvents, recentNews);
 
-        // --- Stage 9 + 10: persist the ranked score with full reasoning ---
+        // --- Stage 9 + 10: persist score ---
         saveSnapshot(company, score);
 
         return DiscoveryResult.included(company, score);
     }
 
+    /**
+     * Fallback method if the single-fetch approach fails.
+     * Uses the original separate fetch logic.
+     */
+    private DiscoveryResult runForCompanyWithSeparateFetches(Company company, AppSettings settings) {
+        log.info("Using fallback (separate fetches) for {}", company.getSymbol());
+        refreshFundamentals(company);
+        List<Event> newEvents = detectNewEvents(company);
+        List<News> newNews = detectNews(company);
+
+        Optional<String> exclusionReason = screeningStage.checkExclusion(company, settings);
+        if (exclusionReason.isPresent()) {
+            return DiscoveryResult.excluded(company, exclusionReason.get());
+        }
+
+        List<Event> recentEvents = eventRepository.findByCompanyIdOrderByEventDateDesc(company.getId());
+        List<News> recentNews = newsRepository.findByCompanyIdOrderByPublishedAtDesc(company.getId());
+        ScoringEngine.ComputedScore score = scoringEngine.compute(company, recentEvents, recentNews);
+        saveSnapshot(company, score);
+        return DiscoveryResult.included(company, score);
+    }
+
+    /**
+     * Refresh fundamentals from a pre-fetched JsonNode.
+     * This eliminates the need for separate API calls.
+     */
+    private void refreshFundamentalsFromNode(Company company, JsonNode root) {
+        // Price data from node
+        indianApiPriceDataSource.parseFromNode(company.getSymbol(), root).ifPresent(snap -> {
+            company.setCurrentPrice(snap.currentPrice());
+            company.setWeek52High(snap.week52High());
+            company.setWeek52Low(snap.week52Low());
+        });
+
+        // Fundamentals from node
+        indianApiFundamentalsSource.parseFromNode(company.getSymbol(), root).ifPresent(fund -> {
+            company.setRevenueGrowthPct(fund.revenueGrowthPct());
+            company.setProfitGrowthPct(fund.profitGrowthPct());
+            company.setOperatingMarginPct(fund.operatingMarginPct());
+            company.setDebtToEquity(fund.debtToEquity());
+            company.setRoce(fund.roce());
+            company.setRoe(fund.roe());
+            company.setPromoterHoldingPct(fund.promoterHoldingPct());
+            company.setInstitutionalHoldingPct(fund.institutionalHoldingPct());
+            company.setMarketCapCr(fund.marketCapCr());
+            company.setPeRatio(fund.peRatio());
+        });
+
+        company.setLastRefreshedAt(LocalDateTime.now());
+        companyRepository.save(company);
+    }
+
+    /**
+     * Detect new events from a pre-fetched JsonNode.
+     */
+    private List<Event> detectNewEventsFromNode(Company company, JsonNode root) {
+        List<AnnouncementSource.RawAnnouncement> raw =
+                indianApiAnnouncementSource.parseFromNode(company.getSymbol(), root);
+        return raw.stream()
+                .filter(a -> !eventAlreadyExists(company, a))
+                .map(a -> {
+                    Event event = eventClassifier.classify(company, a);
+                    return eventRepository.save(event);
+                })
+                .toList();
+    }
+
+    // --- Original methods (kept for fallback and news) ---
+
     private void refreshFundamentals(Company company) {
-        // Price (from IndianApiPriceDataSource)
         priceDataSource.fetchSnapshot(company.getSymbol()).ifPresent(snap -> {
             company.setCurrentPrice(snap.currentPrice());
             company.setWeek52High(snap.week52High());
             company.setWeek52Low(snap.week52Low());
         });
 
-        // Fundamentals (from IndianApiFundamentalsSource)
         fundamentalsDataSource.fetchFundamentals(company.getSymbol()).ifPresent(fund -> {
             company.setRevenueGrowthPct(fund.revenueGrowthPct());
             company.setProfitGrowthPct(fund.profitGrowthPct());
@@ -131,8 +228,8 @@ public class DiscoveryPipeline {
             company.setRoe(fund.roe());
             company.setPromoterHoldingPct(fund.promoterHoldingPct());
             company.setInstitutionalHoldingPct(fund.institutionalHoldingPct());
-            company.setMarketCapCr(fund.marketCapCr());   // NEW
-            company.setPeRatio(fund.peRatio());           // NEW
+            company.setMarketCapCr(fund.marketCapCr());
+            company.setPeRatio(fund.peRatio());
         });
 
         company.setLastRefreshedAt(LocalDateTime.now());

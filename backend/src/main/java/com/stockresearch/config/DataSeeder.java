@@ -49,33 +49,33 @@ public class DataSeeder implements CommandLineRunner {
             return;
         }
 
-        log.info("Seeding demo company universe...");
-
-        companyRepository.save(Company.builder()
-                .symbol("RVNL")
-                .name("Rail Vikas Nigam Limited")
-                .exchange("NSE")
-                .sector("Railway")
-                .industry("Railway Construction & Infrastructure")
-                .build());
-
-        companyRepository.save(Company.builder()
-                .symbol("BEL")
-                .name("Bharat Electronics Limited")
-                .exchange("NSE")
-                .sector("Defense")
-                .industry("Defense Electronics")
-                .build());
-
-        companyRepository.save(Company.builder()
-                .symbol("DEEPAKNTR")
-                .name("Deepak Nitrite Limited")
-                .exchange("NSE")
-                .sector("Chemicals")
-                .industry("Specialty Chemicals")
-                .build());
-
-        log.info("Seeded 3 demo companies. Running initial discovery pipeline...");
+//        log.info("Seeding demo company universe...");
+//
+//        companyRepository.save(Company.builder()
+//                .symbol("RVNL")
+//                .name("Rail Vikas Nigam Limited")
+//                .exchange("NSE")
+//                .sector("Railway")
+//                .industry("Railway Construction & Infrastructure")
+//                .build());
+//
+//        companyRepository.save(Company.builder()
+//                .symbol("BEL")
+//                .name("Bharat Electronics Limited")
+//                .exchange("NSE")
+//                .sector("Defense")
+//                .industry("Defense Electronics")
+//                .build());
+//
+//        companyRepository.save(Company.builder()
+//                .symbol("DEEPAKNTR")
+//                .name("Deepak Nitrite Limited")
+//                .exchange("NSE")
+//                .sector("Chemicals")
+//                .industry("Specialty Chemicals")
+//                .build());
+//
+//        log.info("Seeded 3 demo companies. Running initial discovery pipeline...");
 
         AppSettings settings = settingsService.getSettings();
         // Run twice so there's a "previous" score snapshot to diff against

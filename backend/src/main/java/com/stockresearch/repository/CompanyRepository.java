@@ -44,5 +44,9 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
             @Param("minProfitGrowth") BigDecimal minProfitGrowth
     );
 
+    @Query("SELECT c FROM Company c LEFT JOIN ScoreSnapshot s ON s.company = c " +
+            "GROUP BY c.id ORDER BY MAX(s.computedAt) ASC NULLS FIRST")
+    List<Company> findAllOrderByLastScoreAsc();
+
     List<Company> findAllBySectorIgnoreCaseOrderByMarketCapCrDesc(String sector);
 }

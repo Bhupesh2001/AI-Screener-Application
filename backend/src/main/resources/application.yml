@@ -41,7 +41,7 @@ app:
   #      these are just the defaults used on first boot) ----
   scheduler:
     refresh-interval-hours: 6
-    enabled: true
+    enabled: false
 
   # ---- Discovery engine defaults (also editable via Settings) ----
   discovery:
@@ -60,3 +60,8 @@ logging:
 indianapi:
   api-key: ${INDIANAPI_API_KEY:sk-live-8fUsbTXzLR0WlOYTbJA5bgWnsXnNVQfPU6RLB3ne}
   base-url: https://stock.indianapi.in
+
+
+newsapi:
+  api-key: ${NEWSAPI_API_KEY:4ab3ba922ba74d0aab74af2d20cac8be}
+  base-url: https://newsapi.org/v2
