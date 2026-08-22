@@ -2,6 +2,7 @@ package com.stockresearch.service.discovery;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.stockresearch.domain.*;
+import com.stockresearch.exceptions.RateLimitExceededException;
 import com.stockresearch.repository.*;
 import com.stockresearch.service.datasource.*;
 import com.stockresearch.service.scoring.ScoringEngine;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,8 +76,31 @@ public class DiscoveryPipeline {
 
     @Transactional
     public List<DiscoveryResult> runForAllCompanies(AppSettings settings) {
-        List<Company> universe = companyRepository.findAll();
-        return universe.stream().map(c -> runForCompany(c, settings)).toList();
+        // Get companies ordered by last update (oldest first)
+        List<Company> orderedUniverse = companyRepository.findAllOrderByLastScoreAsc();
+        List<DiscoveryResult> results = new ArrayList<>();
+        int processed = 0;
+        int total = orderedUniverse.size();
+
+        for (Company c : orderedUniverse) {
+            try {
+                DiscoveryResult result = runForCompany(c, settings);
+                results.add(result);
+                processed++;
+            } catch (RateLimitExceededException e) {
+                // We hit the rate limit – stop processing
+                log.warn("Rate limit hit after processing {} companies. Remaining: {}", processed, total - processed);
+                break;
+            } catch (Exception e) {
+                log.error("Error processing {}: {}", c.getSymbol(), e.getMessage());
+                results.add(DiscoveryResult.excluded(c, "Error: " + e.getMessage()));
+            }
+            if (processed % 50 == 0) {
+                log.info("Processed {} / {} companies", processed, total);
+            }
+        }
+        log.info("Refresh complete :: {} = processed, {} = remaining (rate limited or errors)", processed, total - processed);
+        return results;
     }
 
     public DiscoveryResult runForCompany(Company company, AppSettings settings) {
@@ -83,9 +108,11 @@ public class DiscoveryPipeline {
         JsonNode root = null;
         try {
             root = indianApiClient.getStockData(company.getSymbol());
+        } catch (RateLimitExceededException e) {
+            // Propagate to stop the whole batch
+            throw e;
         } catch (Exception e) {
             log.error("Failed to fetch stock data for {}: {}", company.getSymbol(), e.getMessage());
-            // Fall back to separate fetches if the single fetch fails
             return runForCompanyWithSeparateFetches(company, settings);
         }
 

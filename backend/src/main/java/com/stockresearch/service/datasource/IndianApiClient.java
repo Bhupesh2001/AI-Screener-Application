@@ -4,12 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.stockresearch.exceptions.RateLimitExceededException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import jakarta.annotation.PostConstruct;
+import reactor.core.publisher.Mono;
+
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
@@ -70,6 +73,8 @@ public class IndianApiClient {
                             .queryParam("name", symbol)
                             .build())
                     .retrieve()
+                    .onStatus(status -> status.value() == 429,
+                            clientResponse -> Mono.error(new RateLimitExceededException("API rate limit exceeded")))
                     .bodyToMono(String.class)
                     .block();
 
@@ -86,7 +91,9 @@ public class IndianApiClient {
             log.info("Cached response for symbol: {}", symbol);
 
             return root;
-        } catch (Exception e) {
+        }catch (RateLimitExceededException e) {
+            throw e; // rethrow to be caught in runForAllCompanies
+        }  catch (Exception e) {
             log.error("IndianAPI call failed for {}: {}", symbol, e.getMessage(), e);
             throw new RuntimeException("IndianAPI request failed", e);
         }

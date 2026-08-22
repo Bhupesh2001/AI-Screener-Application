@@ -41,7 +41,7 @@ app:
   #      these are just the defaults used on first boot) ----
   scheduler:
     refresh-interval-hours: 6
-    enabled: true
+    enabled: false
 
   # ---- Discovery engine defaults (also editable via Settings) ----
   discovery:
