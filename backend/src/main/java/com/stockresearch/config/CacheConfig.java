@@ -38,7 +38,7 @@ public class CacheConfig {
                 buildCache("fundamentals", 24, TimeUnit.HOURS), // Screener.in data changes quarterly
                 buildCache("price", 1, TimeUnit.HOURS),          // matches RefreshScheduler's hourly cadence
                 buildCache("announcements", 1, TimeUnit.HOURS),  // event-driven; polled more eagerly than fundamentals
-                buildCache("news", 1, TimeUnit.HOURS)            // same reasoning as announcements - stay in step with the scheduler
+                buildCache("news", 24, TimeUnit.HOURS)            // same reasoning as announcements - stay in step with the scheduler
         ));
         return manager;
     }
