@@ -30,35 +30,45 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
         log.info("Fetching fundamentals for symbol: {}", symbol);
         try {
             JsonNode root = apiClient.getStockData(symbol);
+            return parseFundamentals(symbol, root);
+        } catch (Exception e) {
+            log.error("Failed to fetch fundamentals for {}: {}", symbol, e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
 
-            // --- 1. Get key metrics from keyMetrics object ---
+    /**
+     * Parse fundamentals from an already-fetched JsonNode.
+     * This method is called by DiscoveryPipeline to avoid redundant API calls.
+     */
+    public Optional<FundamentalsSnapshot> parseFromNode(String symbol, JsonNode root) {
+        log.debug("Parsing fundamentals from cached node for: {}", symbol);
+        return parseFundamentals(symbol, root);
+    }
+
+    private Optional<FundamentalsSnapshot> parseFundamentals(String symbol, JsonNode root) {
+        try {
+            // --- 1. Get key metrics ---
             JsonNode keyMetrics = root.path("keyMetrics");
             JsonNode margins = keyMetrics.path("margins");
             JsonNode financialStrength = keyMetrics.path("financialstrength");
             JsonNode mgmtEffectiveness = keyMetrics.path("mgmtEffectiveness");
 
-            // Operating margin (trailing 12 months)
             BigDecimal operatingMargin = findMetricValue(margins, "operatingMarginTrailing12Month");
-
-            // Debt to equity (most recent fiscal year)
             BigDecimal debtToEquity = findMetricValue(financialStrength, "totalDebtPerTotalEquityMostRecentFiscalYear");
-
-            // ROCE (return on investment, most recent fiscal year)
             BigDecimal roce = findMetricValue(mgmtEffectiveness, "returnOnInvestmentMostRecentFiscalYear");
 
-            // ROE (return on average equity, most recent fiscal year)
+            // ROE: try fiscal year first, fallback to TTM
             BigDecimal roe = findMetricValue(mgmtEffectiveness, "returnOnAverageEquityMostRecentFiscalYear)");
-            // Also try fallback:
             if (roe == null) {
                 roe = findMetricValue(mgmtEffectiveness, "returnOnAverageEquityTrailing12Month");
             }
 
-            // --- 2. Revenue and profit growth: compute from annual financials (latest vs previous) ---
+            // --- 2. Revenue and profit growth from annual financials ---
             JsonNode financials = root.path("financials");
             BigDecimal revenueGrowth = null;
             BigDecimal profitGrowth = null;
 
-            // Collect all annual reports
             List<JsonNode> annualReports = new ArrayList<>();
             for (JsonNode fin : financials) {
                 if ("Annual".equals(fin.path("Type").asText())) {
@@ -66,7 +76,6 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
                 }
             }
 
-            // Sort by FiscalYear descending (most recent first)
             annualReports.sort((a, b) -> {
                 int fyA = a.path("FiscalYear").asInt(0);
                 int fyB = b.path("FiscalYear").asInt(0);
@@ -76,7 +85,6 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
             if (annualReports.size() >= 2) {
                 JsonNode latest = annualReports.get(0);
                 JsonNode previous = annualReports.get(1);
-
                 JsonNode latestInc = latest.path("stockFinancialMap").path("INC");
                 JsonNode prevInc = previous.path("stockFinancialMap").path("INC");
 
@@ -97,23 +105,21 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
                 }
             }
 
-            // --- 3. Shareholding pattern (latest promoter and institutional) ---
+            // --- 3. Shareholding pattern ---
             JsonNode shareholding = root.path("shareholding");
             BigDecimal promoterHolding = null;
             BigDecimal institutionalHolding = null;
+
             if (shareholding.isArray()) {
-                // Look for "Promoter" and "FII" or "MF" categories
                 for (JsonNode cat : shareholding) {
                     String displayName = cat.path("displayName").asText();
                     JsonNode categories = cat.path("categories");
-                    if (categories.isArray() && !categories.isEmpty()) {
-                        // Get the latest entry (last in array, assuming chronological order)
+                    if (categories.isArray() && categories.size() > 0) {
                         JsonNode latestHolding = categories.get(categories.size() - 1);
                         BigDecimal pct = getBigDecimal(latestHolding.path("percentage"));
                         if ("Promoter".equalsIgnoreCase(displayName)) {
                             promoterHolding = pct;
                         } else if ("FII".equalsIgnoreCase(displayName) || "MF".equalsIgnoreCase(displayName)) {
-                            // We might combine FII + MF for total institutional
                             if (institutionalHolding == null) institutionalHolding = BigDecimal.ZERO;
                             if (pct != null) institutionalHolding = institutionalHolding.add(pct);
                         }
@@ -121,12 +127,11 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
                 }
             }
 
-            // --- 4. Market Cap and PE ratio from stockDetailsReusableData ---
+            // --- 4. Market Cap and PE ---
             JsonNode details = root.path("stockDetailsReusableData");
             BigDecimal marketCapCr = getBigDecimal(details.path("marketCap"));
             BigDecimal peRatio = getBigDecimal(details.path("pPerEBasicExcludingExtraordinaryItemsTTM"));
 
-            log.info("Successfully fetched fundamentals for {}", symbol);
             log.info("Parsed {}: revenueGrowth={}, profitGrowth={}, operatingMargin={}, debtToEquity={}, roce={}, roe={}, promoter={}, institutional={}, marketCapCr={}, peRatio={}",
                     symbol, revenueGrowth, profitGrowth, operatingMargin, debtToEquity, roce, roe,
                     promoterHolding, institutionalHolding, marketCapCr, peRatio);
@@ -144,12 +149,13 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
                     peRatio
             ));
         } catch (Exception e) {
-            log.error("Failed to fetch fundamentals for {}: {}", symbol, e.getMessage(), e);
+            log.error("Error parsing fundamentals for {}: {}", symbol, e.getMessage(), e);
             return Optional.empty();
         }
     }
 
-    // Helper: find a metric value by key inside an array of objects like "margins"
+    // --- Helper methods (unchanged) ---
+
     private BigDecimal findMetricValue(JsonNode array, String key) {
         if (!array.isArray()) return null;
         for (JsonNode item : array) {
@@ -160,7 +166,6 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
         return null;
     }
 
-    // Helper: find a value from income statement array (INC)
     private BigDecimal findIncomeValue(JsonNode incArray, String key) {
         if (!incArray.isArray()) return null;
         for (JsonNode item : incArray) {
@@ -176,7 +181,6 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
         String text = node.asText().trim();
         if (text.isEmpty()) return null;
         try {
-            // Remove commas if present
             text = text.replace(",", "");
             return new BigDecimal(text);
         } catch (NumberFormatException e) {
