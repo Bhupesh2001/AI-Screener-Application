@@ -25,4 +25,5 @@ public class EventDto {
     private String sourceUrl;
     private String source;
     private Integer scoreImpact;
+    private LocalDateTime announcementDate;
 }

@@ -249,6 +249,7 @@ public class CompanyQueryService {
                 .valueCr(e.getValueCr())
                 .eventDate(e.getEventDate())
                 .sourceUrl(e.getSourceUrl())
+                .announcementDate(e.getAnnouncementDate())
                 .source(e.getSource())
                 .scoreImpact(e.getScoreImpact())
                 .build();

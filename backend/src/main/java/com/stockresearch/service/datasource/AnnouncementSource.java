@@ -17,9 +17,10 @@ public interface AnnouncementSource {
     record RawAnnouncement(
             String title,
             String description,
-            LocalDateTime announcementDate,
+            LocalDateTime eventDate,           // the future date (record/xd/board meet)
+            LocalDateTime announcementDate,   // NEW: when the company announced it
             String sourceUrl,
-            String exchange, // NSE or BSE
-            BigDecimal valueCr // optional, e.g. order size
+            String exchange,
+            BigDecimal valueCr
     ) {}
 }

@@ -50,6 +50,7 @@ public class EventCenterService {
                 .type(e.getType().name())
                 .title(e.getTitle())
                 .description(e.getDescription())
+                .announcementDate(e.getAnnouncementDate())
                 .valueCr(e.getValueCr())
                 .eventDate(e.getEventDate())
                 .sourceUrl(e.getSourceUrl())

@@ -60,6 +60,9 @@ public class Event {
     @Column(nullable = false, updatable = false)
     private LocalDateTime detectedAt;
 
+    @Column(name = "announcement_date")
+    private LocalDateTime announcementDate;
+
     @PrePersist
     protected void onCreate() {
         this.detectedAt = LocalDateTime.now();

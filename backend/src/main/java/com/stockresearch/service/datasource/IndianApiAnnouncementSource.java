@@ -6,8 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,9 +19,6 @@ import java.util.List;
 public class IndianApiAnnouncementSource implements AnnouncementSource {
 
     private final IndianApiClient apiClient;
-
-    // Corporate actions date format: "2026-08-13"
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     @Override
     public List<RawAnnouncement> fetchRecentAnnouncements(String companySymbol) {
@@ -36,7 +34,6 @@ public class IndianApiAnnouncementSource implements AnnouncementSource {
 
     /**
      * Parse announcements from an already-fetched JsonNode.
-     * This method is called by DiscoveryPipeline to avoid redundant API calls.
      */
     public List<RawAnnouncement> parseFromNode(String companySymbol, JsonNode root) {
         log.debug("Parsing announcements from cached node for: {}", companySymbol);
@@ -45,8 +42,6 @@ public class IndianApiAnnouncementSource implements AnnouncementSource {
 
     private List<RawAnnouncement> parseAnnouncements(String companySymbol, JsonNode root) {
         List<RawAnnouncement> result = new ArrayList<>();
-
-        // Get corporate actions from stockCorporateActionData
         JsonNode actions = root.path("stockCorporateActionData");
 
         // Parse board meetings
@@ -54,13 +49,16 @@ public class IndianApiAnnouncementSource implements AnnouncementSource {
         if (boardMeetings.isArray()) {
             for (JsonNode meeting : boardMeetings) {
                 String purpose = meeting.path("purpose").asText();
-                String dateStr = meeting.path("boardMeetDate").asText();
-                LocalDateTime date = parseDate(dateStr);
-                if (date != null && purpose != null && !purpose.isEmpty()) {
+                String eventDateStr = meeting.path("boardMeetDate").asText();
+                LocalDateTime eventDate = parseDate(eventDateStr);
+                String announcementDateStr = meeting.path("dateOfAnnouncement").asText();
+                LocalDateTime announcementDate = parseDate(announcementDateStr);
+                if (eventDate != null && purpose != null && !purpose.isEmpty()) {
                     result.add(new RawAnnouncement(
                             "Board Meeting: " + purpose,
                             meeting.path("remarks").asText(),
-                            date,
+                            eventDate,
+                            announcementDate,
                             null,
                             "NSE",
                             null
@@ -74,16 +72,19 @@ public class IndianApiAnnouncementSource implements AnnouncementSource {
         if (dividends.isArray()) {
             for (JsonNode div : dividends) {
                 String remarks = div.path("remarks").asText();
-                String dateStr = div.path("recordDate").asText();
-                if (dateStr == null || dateStr.isEmpty()) {
-                    dateStr = div.path("xdDate").asText();
+                String eventDateStr = div.path("recordDate").asText();
+                if (eventDateStr == null || eventDateStr.isEmpty()) {
+                    eventDateStr = div.path("xdDate").asText();
                 }
-                LocalDateTime date = parseDate(dateStr);
-                if (date != null && remarks != null && !remarks.isEmpty()) {
+                LocalDateTime eventDate = parseDate(eventDateStr);
+                String announcementDateStr = div.path("dateOfAnnouncement").asText();
+                LocalDateTime announcementDate = parseDate(announcementDateStr);
+                if (eventDate != null && remarks != null && !remarks.isEmpty()) {
                     result.add(new RawAnnouncement(
                             "Dividend: " + remarks,
                             "Dividend announcement",
-                            date,
+                            eventDate,
+                            announcementDate,
                             null,
                             "NSE",
                             null
@@ -97,16 +98,42 @@ public class IndianApiAnnouncementSource implements AnnouncementSource {
         if (bonus.isArray()) {
             for (JsonNode bn : bonus) {
                 String remarks = bn.path("remarks").asText();
-                String dateStr = bn.path("recordDate").asText();
-                if (dateStr == null || dateStr.isEmpty()) {
-                    dateStr = bn.path("xbDate").asText();
+                String eventDateStr = bn.path("recordDate").asText();
+                if (eventDateStr == null || eventDateStr.isEmpty()) {
+                    eventDateStr = bn.path("xbDate").asText();
                 }
-                LocalDateTime date = parseDate(dateStr);
-                if (date != null && remarks != null && !remarks.isEmpty()) {
+                LocalDateTime eventDate = parseDate(eventDateStr);
+                String announcementDateStr = bn.path("dateOfAnnouncement").asText();
+                LocalDateTime announcementDate = parseDate(announcementDateStr);
+                if (eventDate != null && remarks != null && !remarks.isEmpty()) {
                     result.add(new RawAnnouncement(
                             "Bonus Issue: " + remarks,
                             "Bonus issue announcement",
-                            date,
+                            eventDate,
+                            announcementDate,
+                            null,
+                            "NSE",
+                            null
+                    ));
+                }
+            }
+        }
+
+        // Parse rights issues (if any)
+        JsonNode rights = actions.path("rights");
+        if (rights.isArray()) {
+            for (JsonNode r : rights) {
+                String remarks = r.path("remarks").asText();
+                String eventDateStr = r.path("recordDate").asText();
+                LocalDateTime eventDate = parseDate(eventDateStr);
+                String announcementDateStr = r.path("dateOfAnnouncement").asText();
+                LocalDateTime announcementDate = parseDate(announcementDateStr);
+                if (eventDate != null && remarks != null && !remarks.isEmpty()) {
+                    result.add(new RawAnnouncement(
+                            "Rights Issue: " + remarks,
+                            "Rights issue announcement",
+                            eventDate,
+                            announcementDate,
                             null,
                             "NSE",
                             null
@@ -119,16 +146,24 @@ public class IndianApiAnnouncementSource implements AnnouncementSource {
         return result;
     }
 
+    /**
+     * Robust date parser for IndianAPI corporate action dates.
+     * Handles both "yyyy-MM-dd" and "yyyy-MM-ddTHH:mm:ss" formats.
+     */
     private LocalDateTime parseDate(String dateStr) {
-        if (dateStr == null || dateStr.isEmpty()) return null;
+        if (dateStr == null || dateStr.isEmpty()) {
+            return null;
+        }
+        // Try ISO date-time format (e.g., "2026-08-13T00:00:00")
         try {
-            return LocalDateTime.parse(dateStr, DATE_FORMAT);
-        } catch (Exception e) {
-            // Try alternate format
+            return LocalDateTime.parse(dateStr);
+        } catch (DateTimeParseException e) {
+            // Try plain date (e.g., "2026-08-13")
             try {
-                return LocalDateTime.parse(dateStr);
-            } catch (Exception ex) {
-                log.debug("Could not parse date: {}", dateStr);
+                LocalDate date = LocalDate.parse(dateStr);
+                return date.atStartOfDay();
+            } catch (DateTimeParseException e2) {
+                log.warn("Could not parse date string: '{}' for announcements", dateStr);
                 return null;
             }
         }

@@ -39,7 +39,8 @@ public class EventClassifier {
                 .title(raw.title())
                 .description(raw.description())
                 .valueCr(raw.valueCr())
-                .eventDate(raw.announcementDate())
+                .eventDate(raw.eventDate())          // future date
+                .announcementDate(raw.announcementDate()) // NEW
                 .sourceUrl(raw.sourceUrl())
                 .source(raw.exchange())
                 .build();

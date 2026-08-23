@@ -61,6 +61,9 @@ public class IndianApiFundamentalsSource implements FundamentalsDataSource {
             // ROE: try fiscal year first, fallback to TTM
             BigDecimal roe = findMetricValue(mgmtEffectiveness, "returnOnAverageEquityMostRecentFiscalYear)");
             if (roe == null) {
+                roe = findMetricValue(mgmtEffectiveness, "returnOnAverageEquityMostRecentFiscalYear"); // in case the API fixes its own typo later
+            }
+            if (roe == null) {
                 roe = findMetricValue(mgmtEffectiveness, "returnOnAverageEquityTrailing12Month");
             }
 
