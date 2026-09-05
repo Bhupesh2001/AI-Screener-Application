@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Component
-@Primary
+//@Primary
 public class NewsApiNewsSource implements NewsSource {
 
     private static final Logger log = LoggerFactory.getLogger(NewsApiNewsSource.class);
