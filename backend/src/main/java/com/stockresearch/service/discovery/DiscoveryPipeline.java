@@ -38,6 +38,7 @@ public class DiscoveryPipeline {
     private final IndianApiPriceDataSource indianApiPriceDataSource;
     private final IndianApiFundamentalsSource indianApiFundamentalsSource;
     private final IndianApiAnnouncementSource indianApiAnnouncementSource;
+    private final IndianApiNewsSource indianApiNewsSource;
     private final IndianApiClient indianApiClient;
 
     public DiscoveryPipeline(
@@ -55,6 +56,7 @@ public class DiscoveryPipeline {
             IndianApiPriceDataSource indianApiPriceDataSource,
             IndianApiFundamentalsSource indianApiFundamentalsSource,
             IndianApiAnnouncementSource indianApiAnnouncementSource,
+            IndianApiNewsSource indianApiNewsSource,
             IndianApiClient indianApiClient
     ) {
         this.companyRepository = companyRepository;
@@ -71,6 +73,7 @@ public class DiscoveryPipeline {
         this.indianApiPriceDataSource = indianApiPriceDataSource;
         this.indianApiFundamentalsSource = indianApiFundamentalsSource;
         this.indianApiAnnouncementSource = indianApiAnnouncementSource;
+        this.indianApiNewsSource = indianApiNewsSource;
         this.indianApiClient = indianApiClient;
     }
 
@@ -122,8 +125,8 @@ public class DiscoveryPipeline {
         // --- Stage 4: Event Detection - parse from cached JSON ---
         List<Event> newEvents = detectNewEventsFromNode(company, root);
 
-        // --- Fetch/refresh news (still separate, as it's a different source) ---
-        List<News> newNews = detectNews(company);
+        // --- Fetch/refresh news from the same cached JSON - zero extra API calls ---
+        List<News> newNews = detectNewsFromNode(company, root);
 
         // --- Stage 2: Fundamental Screening ---
         Optional<String> exclusionReason = screeningStage.checkExclusion(company, settings);
@@ -207,6 +210,28 @@ public class DiscoveryPipeline {
                     Event event = eventClassifier.classify(company, a);
                     return eventRepository.save(event);
                 })
+                .toList();
+    }
+
+    /**
+     * News from the same already-fetched /stock node - zero extra API
+     * calls, mirrors detectNewEventsFromNode's pattern exactly. See
+     * IndianApiNewsSource's Javadoc for what this feed actually contains
+     * (broader "market/group context" than strictly company-only news).
+     */
+    private List<News> detectNewsFromNode(Company company, JsonNode root) {
+        List<NewsSource.NewsItem> raw = indianApiNewsSource.parseFromNode(company.getSymbol(), root);
+        return raw.stream()
+                .filter(n -> !newsAlreadyExists(company, n))
+                .map(n -> newsRepository.save(News.builder()
+                        .company(company)
+                        .headline(n.headline())
+                        .summary(n.summary())
+                        .url(n.url())
+                        .sourceName(n.sourceName())
+                        .publishedAt(n.publishedAt())
+                        .matchesGovernmentTheme(containsGovernmentKeyword(n))
+                        .build()))
                 .toList();
     }
 

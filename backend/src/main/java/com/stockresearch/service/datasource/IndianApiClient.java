@@ -28,6 +28,13 @@ public class IndianApiClient {
     // In-memory cache with 1-hour TTL
     private final Cache<String, JsonNode> responseCache;
 
+    // Separate cache for /recent_announcements - deliberately NOT sharing
+    // responseCache above, since both are keyed by plain symbol and would
+    // silently overwrite each other's entries (whichever call runs second
+    // would clobber the first under the same key, and both hold completely
+    // different JSON shapes).
+    private final Cache<String, JsonNode> announcementsCache;
+
     public IndianApiClient(ObjectMapper objectMapper,
                            @Value("${indianapi.api-key}") String apiKey,
                            @Value("${indianapi.base-url:https://stock.indianapi.in}") String baseUrl) {
@@ -42,6 +49,11 @@ public class IndianApiClient {
 
         // Cache with 1-hour expiration
         this.responseCache = Caffeine.newBuilder()
+                .expireAfterWrite(1, TimeUnit.HOURS)
+                .maximumSize(1000)
+                .build();
+
+        this.announcementsCache = Caffeine.newBuilder()
                 .expireAfterWrite(1, TimeUnit.HOURS)
                 .maximumSize(1000)
                 .build();
@@ -113,6 +125,59 @@ public class IndianApiClient {
     public void clearAllCache() {
         responseCache.invalidateAll();
         log.info("All cache cleared");
+    }
+
+    /**
+     * Fetches the free-text corporate announcements feed (order wins,
+     * capacity expansion, director changes, AGM notices, etc.) - a
+     * genuinely separate endpoint from /stock, not bundled data, so this
+     * is always an additional network call regardless of which entry
+     * point (fetchRecentAnnouncements vs parseFromNode) triggers it.
+     * Cached for an hour like getStockData, to keep that additional cost
+     * bounded to roughly once per company per refresh cycle rather than
+     * once per scoring pass.
+     *
+     * Unlike getStockData, failures here do NOT throw a hard
+     * RuntimeException - this is supplementary data layered on top of
+     * corporate actions, and a failure fetching it should never prevent
+     * scoring from proceeding with whatever other data succeeded. Returns
+     * null on any failure; callers treat null as "nothing available this
+     * cycle", matching how every other data source in this app degrades.
+     */
+    public JsonNode getRecentAnnouncements(String symbol) {
+        JsonNode cached = announcementsCache.getIfPresent(symbol);
+        if (cached != null) {
+            log.info("Cache hit for recent_announcements: {}", symbol);
+            return cached;
+        }
+
+        log.info("Calling IndianAPI recent_announcements for symbol: {}", symbol);
+        try {
+            String response = webClient.get()
+                    .uri(uriBuilder -> uriBuilder.path("/recent_announcements")
+                            .queryParam("stock_name", symbol)
+                            .build())
+                    .retrieve()
+                    .onStatus(status -> status.value() == 429,
+                            clientResponse -> Mono.error(new RateLimitExceededException("API rate limit exceeded")))
+                    .bodyToMono(String.class)
+                    .block();
+
+            if (response == null) {
+                log.warn("Empty response for recent_announcements: {}", symbol);
+                return null;
+            }
+
+            JsonNode root = objectMapper.readTree(response);
+            announcementsCache.put(symbol, root);
+            return root;
+
+        } catch (RateLimitExceededException e) {
+            throw e; // same as getStockData - let this halt the batch, not silently degrade
+        } catch (Exception e) {
+            log.warn("IndianAPI recent_announcements call failed for {}: {}", symbol, e.getMessage());
+            return null;
+        }
     }
 
     public JsonNode getHistoricalStats(String symbol, String stats) {

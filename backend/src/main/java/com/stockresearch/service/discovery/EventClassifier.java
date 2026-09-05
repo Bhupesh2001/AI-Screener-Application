@@ -29,7 +29,14 @@ import org.springframework.stereotype.Component;
 public class EventClassifier {
 
     public Event classify(Company company, AnnouncementSource.RawAnnouncement raw) {
-        String haystack = (raw.title() + " " + (raw.description() == null ? "" : raw.description())).toLowerCase();
+        // Regulatory category names (from BSE/NSE feeds) often use underscores
+        // instead of spaces, e.g. "Award_of_Order_Receipt_of_Order" - normalize
+        // so keyword phrases like "award of order" still match regardless of
+        // which separator the source used. Verified necessary against a real
+        // IndianAPI /recent_announcements sample, not a hypothetical case.
+        String haystack = (raw.title() + " " + (raw.description() == null ? "" : raw.description()))
+                .toLowerCase()
+                .replace('_', ' ');
 
         Event.EventType type = determineType(haystack);
 
@@ -39,8 +46,7 @@ public class EventClassifier {
                 .title(raw.title())
                 .description(raw.description())
                 .valueCr(raw.valueCr())
-                .eventDate(raw.eventDate())          // future date
-                .announcementDate(raw.announcementDate()) // NEW
+                .eventDate(raw.announcementDate())
                 .sourceUrl(raw.sourceUrl())
                 .source(raw.exchange())
                 .build();

@@ -55,11 +55,13 @@ app:
 
 logging:
   level:
-    com.stockresearch: INFO
+    com.stockresearch: DEBUG
 
 indianapi:
-  api-key: ${INDIANAPI_API_KEY:sk-live-8fUsbTXzLR0WlOYTbJA5bgWnsXnNVQfPU6RLB3ne}
+#  api-key: ${INDIANAPI_API_KEY:sk-live-8fUsbTXzLR0WlOYTbJA5bgWnsXnNVQfPU6RLB3ne}
+  api-key: ${INDIANAPI_API_KEY:sk-live-DgydKkV3cC9g62dsqnRrL1yJAJgpgZ2iYiS4mLrb}
   base-url: https://stock.indianapi.in
+  recent-announcements-enabled: false
 
 
 newsapi:
