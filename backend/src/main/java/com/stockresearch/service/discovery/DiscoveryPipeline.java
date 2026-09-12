@@ -6,6 +6,7 @@ import com.stockresearch.exceptions.RateLimitExceededException;
 import com.stockresearch.repository.*;
 import com.stockresearch.service.datasource.*;
 import com.stockresearch.service.scoring.ScoringEngine;
+import com.stockresearch.util.GovernmentTailwindKeywords;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -297,15 +298,10 @@ public class DiscoveryPipeline {
                 .anyMatch(existing -> existing.getHeadline().equals(n.headline()));
     }
 
-    private static final List<String> GOV_KEYWORDS = List.of(
-            "pli", "defense", "defence", "railway", "power grid", "renewable", "solar",
-            "semiconductor", "electronics", "ev", "telecom", "infrastructure", "atmanirbhar"
-    );
-
     private boolean containsGovernmentKeyword(NewsSource.NewsItem n) {
-        String haystack = ((n.headline() == null ? "" : n.headline())
-                + " " + (n.summary() == null ? "" : n.summary())).toLowerCase();
-        return GOV_KEYWORDS.stream().anyMatch(haystack::contains);
+        String haystack = (n.headline() == null ? "" : n.headline())
+                + " " + (n.summary() == null ? "" : n.summary());
+        return GovernmentTailwindKeywords.matches(haystack);
     }
 
     private void saveSnapshot(Company company, ScoringEngine.ComputedScore score) {

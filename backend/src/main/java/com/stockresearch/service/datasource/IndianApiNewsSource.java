@@ -78,6 +78,11 @@ public class IndianApiNewsSource implements NewsSource {
     private static final int MAX_SOURCE_NAME_LENGTH = 120;
 
     @Override
+    public void evictCache(String companySymbol) {
+        apiClient.evictCache(companySymbol);
+    }
+
+    @Override
     public List<NewsItem> fetchRecentNews(String companySymbol, String companyName) {
         try {
             JsonNode root = apiClient.getStockData(companySymbol);

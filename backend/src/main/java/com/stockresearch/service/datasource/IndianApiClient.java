@@ -70,6 +70,17 @@ public class IndianApiClient {
      * Fetches stock data from IndianAPI, with caching.
      * Subsequent calls for the same symbol within 1 hour return the cached response.
      */
+    /**
+     * Invalidates the cached /stock response for a symbol, forcing the next
+     * getStockData() call to hit the network instead of returning stale
+     * data. Used by IndianApiNewsSource's evictCache() override, so a
+     * manual "refresh news" trigger actually gets fresh data rather than
+     * whatever's left of this cache's 1-hour TTL.
+     */
+    public void evictCache(String symbol) {
+        responseCache.invalidate(symbol);
+    }
+
     public JsonNode getStockData(String symbol) {
         // Check cache first
         JsonNode cached = responseCache.getIfPresent(symbol);

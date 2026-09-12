@@ -84,12 +84,26 @@ class GoogleNewsRssNewsSource implements NewsSource {
     private static final String RECENCY_MODIFIER = " when:30d";
 
     private final WebClient webClient;
+    private final org.springframework.cache.CacheManager cacheManager;
 
-    public GoogleNewsRssNewsSource() {
+    public GoogleNewsRssNewsSource(org.springframework.cache.CacheManager cacheManager) {
         this.webClient = WebClient.builder()
                 .baseUrl(RSS_SEARCH_URL)
                 .defaultHeader("User-Agent", USER_AGENT)
                 .build();
+        this.cacheManager = cacheManager;
+    }
+
+    @Override
+    public void evictCache(String companySymbol) {
+        // Programmatic eviction (rather than a declarative @CacheEvict)
+        // since this needs to be triggered from NewsService's manual
+        // refresh flow via the NewsSource interface, not from a call
+        // pattern @CacheEvict can intercept directly.
+        org.springframework.cache.Cache cache = cacheManager.getCache("news");
+        if (cache != null) {
+            cache.evict(companySymbol);
+        }
     }
 
     @Override

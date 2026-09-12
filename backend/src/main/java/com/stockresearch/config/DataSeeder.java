@@ -13,15 +13,25 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 
 /**
- * Seeds the initial company universe (Stage 1) with 3 demo companies spanning
- * different sectors, then runs the discovery pipeline once so the app has
- * real scores/events/news to show on first launch instead of an empty
- * database. Idempotent: skips seeding if companies already exist.
+ * Originally seeded a small demo company universe (3 companies) on first
+ * launch. Company seeding now happens via a separate one-time script
+ * (services/fundamentals-service/import_nifty500.py), which populates the
+ * full universe from NSE's official Nifty 500 constituent list directly -
+ * this class's original seeding code is commented out below and kept only
+ * for reference, not as the active mechanism. StubPriceDataSource /
+ * StubNewsSource / StubAnnouncementSource (referenced in the original
+ * seeding code's comments below) no longer exist - real data sources
+ * replaced them entirely.
  *
- * TO ADD MORE COMPANIES: add entries here, and add matching canned data in
- * StubPriceDataSource / StubNewsSource / StubAnnouncementSource (or, once
- * real data source implementations exist, no seeding is needed at all -
- * Stage 1 would populate itself from a real NSE/BSE company list).
+ * Current behavior: if companies already exist (the normal case once
+ * import_nifty500.py has been run), this logs and does nothing further.
+ * If the company table is genuinely empty, execution falls through to
+ * running the discovery pipeline twice regardless - but since the seeding
+ * block below is commented out and nothing else populates companies at
+ * that point, that run has nothing to process. KNOWN GAP: on a truly fresh
+ * environment, import_nifty500.py needs to be run manually before this
+ * class (or the app generally) does anything useful - there is currently
+ * no automatic bootstrap path.
  */
 @Component
 public class DataSeeder implements CommandLineRunner {

@@ -3,16 +3,17 @@ package com.stockresearch.service.scoring.rules;
 import com.stockresearch.domain.Event;
 import com.stockresearch.domain.News;
 import com.stockresearch.service.scoring.ScoreRule;
+import com.stockresearch.util.GovernmentTailwindKeywords;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Implements Stage 5 (Government Tailwind Detection) from the discovery
- * spec: maintains a configurable keyword list and scores companies higher
- * when their news/announcements repeatedly match these themes.
+ * spec: scores companies higher when their news/announcements repeatedly
+ * match government-policy themes (see GovernmentTailwindKeywords for the
+ * canonical keyword list, shared with DiscoveryPipeline and NewsService).
  *
  * The keyword list is currently a static in-code set; to make it editable
  * from Settings without a redeploy, promote this to a DB-backed list (a
@@ -21,14 +22,6 @@ import java.util.Set;
  */
 @Component
 public class GovernmentTailwindScoreRule implements ScoreRule {
-
-    // Stage 5 keyword list from the spec.
-    private static final Set<String> KEYWORDS = Set.of(
-            "pli", "defense", "defence", "railway", "power grid", "transmission",
-            "renewable", "solar", "wind", "semiconductor", "electronics", "battery",
-            "ev", "telecom", "bharatnet", "smart city", "data center", "infrastructure",
-            "hydrogen", "import substitution", "atmanirbhar", "manufacturing"
-    );
 
     @Override
     public String category() {
@@ -45,10 +38,10 @@ public class GovernmentTailwindScoreRule implements ScoreRule {
         List<String> matchedThemes = new ArrayList<>();
 
         for (News n : input.recentNews()) {
-            String haystack = ((n.getHeadline() == null ? "" : n.getHeadline())
-                    + " " + (n.getSummary() == null ? "" : n.getSummary())).toLowerCase();
-            for (String kw : KEYWORDS) {
-                if (haystack.contains(kw) && !matchedThemes.contains(kw)) {
+            String haystack = (n.getHeadline() == null ? "" : n.getHeadline())
+                    + " " + (n.getSummary() == null ? "" : n.getSummary());
+            for (String kw : GovernmentTailwindKeywords.findMatches(haystack)) {
+                if (!matchedThemes.contains(kw)) {
                     matchedThemes.add(kw);
                 }
             }
